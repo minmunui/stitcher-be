@@ -36,6 +36,11 @@ app.add_middleware(
 async def root():
     return {"message": "Hello World"}
 
+@app.get("/test")
+async def test():
+    uploaded_time, n_image, status_1 = get_data_status_step1("deokgok_240404")
+    print(f"status_1: {status_1}")
+    return JSONResponse(content={"message": status_1}, status_code=200)
 
 @app.get("/server_info")
 async def get_server_info():
@@ -114,7 +119,6 @@ async def delete_data(id: str):
             return JSONResponse(content={"error": "Data not found"}, status_code=404)
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
-
 
 @app.get("/error/{id}/{step}")
 async def get_status(id: str, step: int):

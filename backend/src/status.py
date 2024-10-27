@@ -6,7 +6,7 @@ from src.server_info import SERVER_INFO
 
 from src.file_query import DATA_PATH, get_full_name_by_data_name, get_uuid_by_name
 
-from backend.src.utils import convert_time
+from src.utils import convert_time
 
 DATA_STATUS = {
     "UPLOADING": 0,
@@ -42,9 +42,9 @@ ODM_STATUS = {
 """
 
 
-def get_time_from_timestamp(timestamp: int) -> datetime:
-    timestamp = timestamp / 1000
-    return datetime.fromtimestamp(timestamp)
+def get_time_from_timestamp(timestamp: int) -> str:
+    timestamp = timestamp
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
 
 
 
@@ -62,9 +62,9 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
         if data == dir_name:
             uploaded_time = os.path.getctime(os.path.join(DATA_PATH, data))
             uploaded_time = datetime.fromtimestamp(uploaded_time)
-            return uploaded_time, 0, {
+            return convert_time(uploaded_time), 0, {
                 "status": DATA_STATUS["UPLOADING"],
-                "data": {"startedAt": uploaded_time}
+                "data": {"startedAt": convert_time(uploaded_time)}
             }
 
     full_name = get_full_name_by_data_name(dir_name)
@@ -85,7 +85,7 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
     # 정합 전인 데이터
     # data_path에 opencv-output이 존재하지 않으면 정합 전
     if not os.path.exists(opencv_path):
-        return uploaded_time, n_images, {
+        return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["READY"],
             "data": {"uploadedAt": uploaded_time}
         }
@@ -96,7 +96,7 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
         # 에러 로그를 읽어서 반환
         with open(os.path.join(data_path, "opencv-output", "error.txt"), "r") as f:
             error_log = f.read()
-        return uploaded_time, n_images, {
+        return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["ERROR"],
             "data": {"errorLog": error_log}
         }
@@ -110,20 +110,20 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
         if cluster.startswith("c"):
             n_cluster = cluster.split('_')[1].split('.')[0]
             uploaded_time = os.path.getctime(os.path.join(opencv_path, cluster))
-            uploaded_time = datetime.fromtimestamp(uploaded_time)
+            uploaded_time = convert_time(datetime.fromtimestamp(uploaded_time))
         if cluster.startswith("opencv_"):
             if current_cluster < int(cluster.split('_')[1].split('.')[0]):
                 current_cluster = int(cluster.split('_')[1].split('.')[0])
 
     # 정합이 완료된 경우
     if current_cluster == n_cluster:
-        return uploaded_time, n_images, {
+        return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["DONE"],
             "data": {"dataPath": data_path}
         }
     # 정합 중
     else:
-        return uploaded_time, n_images, {
+        return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["ONPROGRESS"],
             "data": {"startedAt": uploaded_time, "nCluster": n_cluster, "currentCluster": current_cluster}
         }
@@ -137,7 +137,8 @@ def get_data_status_step2(dir_name: str) -> dict:
     """
     # localhost:3000/task/{dir_name}/info 로 요청 보내기
     uuid = get_uuid_by_name(dir_name)
-    uploaded_time = os.path.getctime(os.path.join(DATA_PATH, get_full_name_by_data_name(dir_name)))
+    uploaded_time = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, get_full_name_by_data_name(dir_name))))
+    uploaded_time = convert_time(uploaded_time)
     if uuid is None:
         return {
             "status": DATA_STATUS["READY"],
