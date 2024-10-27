@@ -1,4 +1,5 @@
 import os
+from os import listdir
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File
@@ -14,7 +15,6 @@ from src.status import get_data_status_step1, get_data_status_step2, get_uuid_by
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'tiff'}
 
-
 app = FastAPI()
 
 origins = [
@@ -26,21 +26,24 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,            # 허용할 Origin 목록
-    allow_credentials=True,           # 쿠키 등 자격 증명 허용 여부
-    allow_methods=["*"],              # 허용할 HTTP 메서드 목록
-    allow_headers=["*"],              # 허용할 HTTP 헤더 목록
+    allow_origins=origins,  # 허용할 Origin 목록
+    allow_credentials=True,  # 쿠키 등 자격 증명 허용 여부
+    allow_methods=["*"],  # 허용할 HTTP 메서드 목록
+    allow_headers=["*"],  # 허용할 HTTP 헤더 목록
 )
+
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
 
 @app.get("/test")
 async def test():
     uploaded_time, n_image, status_1 = get_data_status_step1("deokgok_240404")
     print(f"status_1: {status_1}")
     return JSONResponse(content={"message": status_1}, status_code=200)
+
 
 @app.get("/server_info")
 async def get_server_info():
@@ -57,7 +60,6 @@ async def get_server_info():
                 continue
             key, value = line.split("!")
             server_data[key] = value
-    print(f"server_data: {server_data}")
     return JSONResponse(content=server_data, status_code=200)
 
 
@@ -92,8 +94,10 @@ async def audio_inference(
     return JSONResponse({"output": list_stdout})
 
 
-@app.post("/stitch/{id}/{step}")
-async def stitch(id: str, step: int, option: dict):
+@app.post("/stitch")
+async def stitch(option: dict):
+    step = option["step"]
+    id = option["id"]
     if step == 1:
         task_queue.put(id)
         return JSONResponse(content={"message": "Task is added to queue"}, status_code=200)
@@ -120,6 +124,7 @@ async def delete_data(id: str):
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
+
 @app.get("/error/{id}/{step}")
 async def get_status(id: str, step: int):
     if step == 1:
@@ -131,18 +136,24 @@ async def get_status(id: str, step: int):
     else:
         return JSONResponse(content={"errorLog": "Invalid step"}, status_code=400)
 
+
 @app.get('/data')
 async def get_data_list():
     try:
         folder_names = [name for name in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, name))]
         results = []
+        name = ""
         for folder_name in folder_names:
-            name = folder_name
+            print(f"folder_name: {folder_name}")
+            if len(folder_name.split(";")) > 1:
+                name = folder_name.split(";")[0]
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
             status_2 = get_data_status_step2(folder_name)
 
+            if name != "":
+                folder_name = name
             results.append({
-                "name": name,
+                "name": folder_name,
                 "time": uploaded_time,
                 "size": n_image,
                 "status_1": status_1,
@@ -161,43 +172,43 @@ def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-#
-# @app.post("/upload")
-# async def upload_file(file: UploadFile = File(...)):
-#     # 파일 이름이 비어있는 경우
-#     if not file.filename:
-#         raise HTTPException(status_code=400, detail="선택된 파일이 없습니다")
-#
-#     # 파일 확장자 확인
-#     if not allowed_file(file.filename):
-#         raise HTTPException(status_code=400, detail="허용되지 않는 파일 형식입니다")
-#
-#     # 안전한 파일 이름 설정
-#     filename = file.filename
-#     save_path = UPLOAD_FOLDER / filename
-#
-#     # 업로드 폴더가 없으면 생성
-#     UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
-#
-#     # 파일 저장
-#     with open(save_path, "wb") as buffer:
-#         buffer.write(await file.read())
-#
-#     return JSONResponse(content={"message": "파일이 성공적으로 업로드되었습니다"}, status_code=200)
-
-
 @app.post("/upload/{id}")
 async def upload_file(id: str, file: UploadFile = File(...)):
-    # 저장할 디렉토리 설정 (예: dataset/{id}/images)
-    upload_path = Path(DATA_DIR) / id / "images"
-    upload_path.mkdir(parents=True, exist_ok=True)  # 디렉토리가 없으면 생성
+    already_exist = False
+    uploaded = False
+    print(f"file_name: {file.filename}")
 
-    # 파일 경로 설정
+    # 존재하는지 확인
+    for file_name in listdir(DATA_DIR):
+        if file_name.startswith(id):
+            if len(file_name.split(";")) > 1:
+                already_exist = True
+                uploaded = True
+                id = file_name
+            if file_name == id:
+                already_exist = True
+                break
+
+    upload_path = Path(DATA_DIR) / id / "images"
+    if not already_exist:
+        upload_path.mkdir(parents=True, exist_ok=True)
+
     file_location = upload_path / file.filename
 
     # 파일 저장
     with open(file_location, "wb") as f:
         f.write(await file.read())
 
-    return {"info": f"file is saved on {str(file_location)}"}
+    # 존재하지 않는다면, 새로운 uuid 생성하여 새로운 디렉토리 생성
+    if not uploaded:
+        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
+        print(f"response: {response.json()}")
 
+        if response.status_code == 200:
+            uuid = response.json()["uuid"]
+            id = id + ";" + uuid
+            os.rename(upload_path, Path(DATA_DIR) / id / "images")
+        else:
+            return JSONResponse(content={"error": "Cannot create new task"}, status_code=500)
+
+    return {"info": f"file is saved on {str(file_location)}"}
