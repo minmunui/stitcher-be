@@ -1,2 +1,2 @@
 title!ODM Server 22
-ODM_URL!http://192.168.0.62:8000
+ODM_URL!http://192.168.0.62:3000

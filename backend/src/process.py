@@ -1,27 +1,21 @@
-import os
+import asyncio
 import sys
-from os import getcwd
 from pathlib import Path
-
-from threading import Thread
-
-from backend.src.utils import task_queue
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / 'stitcher-step1'))
 
-from main import run
+task_queue = asyncio.Queue()
 
-def process_queue():
+async def worker():
     while True:
-        task_dir = task_queue.get()
+        input_path = await task_queue.get()
+        print(f"Processing {input_path}")
         try:
-            print(f'Processing {task_dir}')
-            run(input_path=os.path.join(getcwd(),"datasets",task_dir))
+            print(f"Processing {input_path}")
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, stitch_run, input_path)
         except Exception as e:
-            print(f'Error processing {task_dir}: {e}')
-        task_queue.task_done()
+            print(f"Error processing {input_path}: {e}")
+        finally:
+            task_queue.task_done()
 
-
-
-worker_thread = Thread(target=process_queue, daemon=True)
-worker_thread.start()

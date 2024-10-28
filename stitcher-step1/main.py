@@ -15,7 +15,7 @@ ROT = {
 OPENCV_DIR_NAME = "opencv_output"
 
 
-def run(input_path: str, pano_conf: float = 1.0, scans: int = 1):
+async def stitch_run(input_path: str, pano_conf: float = 1.0, scans: int = 1):
     output_path = os.path.join(input_path, OPENCV_DIR_NAME)
     shutil.rmtree(output_path, ignore_errors=True)
     print(f"delete {output_path}")
@@ -71,7 +71,9 @@ def stitch(input_path: str, pano_conf: float = 1.0, scans: int = 1, n_cluster: i
         else:
             print("Stitching failed. Error code: ", status)
             raise Exception(f"Stitching step 1 failed | n_cluster : {n_cluster}")
-
+    file = open(os.path.join(output_base, "flag.txt"), "w")
+    file.write("1")
+    file.close()
 
 def main():
     parser = argparse.ArgumentParser()

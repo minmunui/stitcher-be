@@ -4,7 +4,7 @@ import requests
 
 from src.server_info import SERVER_INFO
 
-from src.file_query import DATA_PATH, get_full_name_by_data_name, get_uuid_by_name
+from src.file_query import DATA_PATH, get_uuid_by_name
 
 from src.utils import convert_time
 
@@ -58,25 +58,24 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
     datalist = os.listdir(DATA_PATH)
 
     # 업로드 중인 데이터
-    for data in datalist:
-        if data == dir_name:
-            uploaded_time = os.path.getctime(os.path.join(DATA_PATH, data))
-            uploaded_time = datetime.fromtimestamp(uploaded_time)
-            return convert_time(uploaded_time), 0, {
-                "status": DATA_STATUS["UPLOADING"],
-                "data": {"startedAt": convert_time(uploaded_time)}
-            }
+    if "uploading.txt" in os.listdir(os.path.join(DATA_PATH, dir_name)):
+        uploaded_time = os.path.getctime(os.path.join(DATA_PATH, dir_name))
+        uploaded_time = datetime.fromtimestamp(uploaded_time)
+        n_image = len(os.listdir(os.path.join(DATA_PATH, dir_name, "images")))
+        return convert_time(uploaded_time), n_image, {
+            "status": DATA_STATUS["UPLOADING"],
+            "data": {"startedAt": convert_time(uploaded_time)}
+        }
 
-    full_name = get_full_name_by_data_name(dir_name)
     # 존재하지 않는 파일
-    if full_name is None:
+    if dir_name is None:
         print(f"Error: {dir_name} is not found")
         return "", 0, {
             "status": DATA_STATUS["ERROR"],
             "data": {"errorLog": "Data not found"}
         }
 
-    data_path = os.path.join(DATA_PATH, get_full_name_by_data_name(full_name))
+    data_path = os.path.join(DATA_PATH, dir_name)
     opencv_path = os.path.join(data_path, "opencv-output")
     image_path = os.path.join(data_path, "images")
     n_images = len(os.listdir(image_path))
@@ -103,23 +102,36 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
 
     # 정합 중 혹은 완료 데이터
     n_cluster = 0
+    n_completed = 0
     current_cluster = 0
-    uploaded_time = None
+    uploaded_time = os.path.getctime(os.path.join(opencv_path))
+    uploaded_time = convert_time(datetime.fromtimestamp(uploaded_time))
     # data_path에 opencv-output이 존재하지만, opencv-output에 c로 시작하는 폴더가 존재하면 정합 중
-    for cluster in os.listdir(opencv_path):
-        if cluster.startswith("c"):
-            n_cluster = cluster.split('_')[1].split('.')[0]
-            uploaded_time = os.path.getctime(os.path.join(opencv_path, cluster))
-            uploaded_time = convert_time(datetime.fromtimestamp(uploaded_time))
-        if cluster.startswith("opencv_"):
-            if current_cluster < int(cluster.split('_')[1].split('.')[0]):
-                current_cluster = int(cluster.split('_')[1].split('.')[0])
+    for opencv_file in os.listdir(opencv_path):
+        if opencv_file.startswith("c"):
+            n_cluster = int(opencv_file.split('_')[1].split('.')[0])
 
+        if opencv_file.startswith("opencv_"):
+            n_completed += 1
+            if current_cluster < int(opencv_file.split('_')[1].split('.')[0]):
+                current_cluster = int(opencv_file.split('_')[1].split('.')[0])
+
+    if n_cluster == 0:
+        return convert_time(uploaded_time), n_images, {
+            "status": DATA_STATUS["ONPROGRESS"],
+            "data": {"startedAt": uploaded_time}
+        }
     # 정합이 완료된 경우
-    if current_cluster == n_cluster:
+    if n_completed == n_cluster or "flag.txt" in os.listdir(opencv_path):
         return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["DONE"],
             "data": {"dataPath": data_path}
+        }
+    # 정합 실패
+    elif n_completed < n_cluster and "flag.txt" in os.listdir(opencv_path):
+        return convert_time(uploaded_time), n_images, {
+            "status": DATA_STATUS["ERROR"],
+            "data": {"errorLog": "Stitching failed partially"}
         }
     # 정합 중
     else:
@@ -137,17 +149,16 @@ def get_data_status_step2(dir_name: str) -> dict:
     """
     # localhost:3000/task/{dir_name}/info 로 요청 보내기
     uuid = get_uuid_by_name(dir_name)
-    uploaded_time = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, get_full_name_by_data_name(dir_name))))
+    uploaded_time = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, dir_name)))
     uploaded_time = convert_time(uploaded_time)
     if uuid is None:
         return {
             "status": DATA_STATUS["READY"],
             "data": {"uploadedAt": uploaded_time}
         }
-    print(f"dir_name: {dir_name}, uuid: {uuid}")
-    print(f"get data status: {SERVER_INFO["ODM_URL"]}/task/{uuid}/info")
     result = requests.get(f"{SERVER_INFO["ODM_URL"]}/task/{uuid}/info")
-    print(f"result: {result.json()}")
+    print(f"{SERVER_INFO['ODM_URL']}/task/{uuid}/info")
+    print(result.json())
     if result.status_code == 200:
         # result에 error라는 key가 있을 경우, 준비중
         if "error" in result.json():
