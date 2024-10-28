@@ -49,6 +49,8 @@ app.add_middleware(
 @router.get("/")
 async def root():
     return {"message": "Hello World"}
+
+
 #
 # @router.on_event("startup")
 # async def startup_event():
@@ -115,6 +117,7 @@ async def stitch(option: dict):
     else:
         return JSONResponse(content={"error": "Invalid step"}, status_code=400)
 
+
 @router.delete("/delete/{id}")
 async def delete_data(id: str):
     try:
@@ -128,6 +131,7 @@ async def delete_data(id: str):
             return JSONResponse(content={"error": "Data not found"}, status_code=404)
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
 
 @router.post("/reset/{id}/{step}")
 async def reset_data(id: str, step: int):
@@ -144,6 +148,7 @@ async def reset_data(id: str, step: int):
             return JSONResponse(content={"error": "Cannot reset task"}, status_code=500)
     else:
         return JSONResponse(content={"error": "Invalid step"}, status_code=400)
+
 
 @router.get("/stitched_image/{id}/{step}")
 async def stitched_image(id: str, step: int):
@@ -184,38 +189,44 @@ async def stitched_image(id: str, step: int):
         return JSONResponse(content={"stitchedImage": "Invalid step"}, status_code=400)
 
 
-@router.get("/stitched_image/download/{id}")
-async def download_stitched_image(id: str):
-    # 메모리에 ZIP 파일 생성
-    zip_buffer = io.BytesIO()
+@router.get("/stitched_image/download/{file_name}/{step}")
+async def download_stitched_image(file_name: str, step: int):
+    try:
+        if step == 1:
+            # ZIP 파일을 메모리에 생성
+            zip_buffer = io.BytesIO()
 
-    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        # 대상 디렉토리의 모든 파일을 순회
-        image_dir = Path(DATA_DIR) / id / "images"
-        if image_dir.is_dir():
-            for file_path in image_dir.glob('*'):  # 모든 파일 선택
-                # 파일이 이미지인 경우에만 추가 (필요한 경우)
-                if file_path.suffix.lower() in ['.jpg']:
-                    # ZIP 파일 내 경로와 파일 데이터 추가
-                    zip_file.write(
-                        file_path,
-                        arcname=file_path.name  # ZIP 내부에서의 파일명
-                    )
+            # ZIP 파일 생성
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # 이미지가 있는 디렉토리 경로
+                image_dir = Path(DATA_DIR) / file_name / OPENCV_DIR_NAME
 
-    # ZIP 버퍼를 처음으로 되감기
-    zip_buffer.seek(0)
+                if not image_dir.exists():
+                    raise HTTPException(status_code=404, detail="Image directory not found")
 
-    # 다운로드용 헤더 설정
-    headers = {
-        "Content-Disposition": f"attachment; filename={id}_images.zip"
-    }
+                # 디렉토리 내의 모든 이미지 파일을 ZIP에 추가
+                for file_path in image_dir.glob('*'):
+                    if file_path.is_file() and file_path.suffix.lower() in ['.jpg', '.jpeg', '.png']:
+                        # ZIP 파일 내 경로와 파일 데이터 추가
+                        zip_file.write(
+                            file_path,
+                            arcname=file_path.name  # ZIP 내부의 파일명
+                        )
 
-    # StreamingResponse로 ZIP 파일 반환
-    return StreamingResponse(
-        zip_buffer,
-        headers=headers,
-        media_type="application/zip"
-    )
+            # ZIP 버퍼를 처음으로 되감기
+            zip_buffer.seek(0)
+
+            headers = {
+                "Content-Disposition": f"attachment; filename={file_name}_step{step}.zip"
+            }
+            return StreamingResponse(
+                zip_buffer,
+                headers=headers,
+                media_type="application/zip"
+            )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Image directory not found")
+
 
 @router.get("/error_log/{id}/{step}")
 async def get_status(id: str, step: int):
@@ -266,7 +277,6 @@ def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-
 @router.post("/single_upload/{id}")
 async def upload_file(id: str, file: UploadFile = File(...), total: int = Form(...)):
     if not id:
@@ -275,6 +285,7 @@ async def upload_file(id: str, file: UploadFile = File(...), total: int = Form(.
         raise HTTPException(status_code=422, detail="File is required")
 
     return await save_file([file], id, total)
+
 
 @router.post("/multiple_upload/{id}")
 async def upload_file(id: str, files: list[UploadFile] = File(...), total: int = Form(...)):
@@ -313,9 +324,7 @@ async def save_file(files, id, total):
     return {"info": f"file is saved on {str(upload_path)}"}
 
 
-
 app.include_router(router, prefix="/api")
-
 
 # @router.post("/upload/{id}")
 # async def upload_file(id: str, file: UploadFile = File(...)):
