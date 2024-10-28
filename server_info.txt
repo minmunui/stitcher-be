@@ -1,2 +1,0 @@
-title!DEV SERVER
-ODM_URL!http://192.168.0.62:3000/

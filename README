@@ -1,0 +1,5 @@
+### 서버 실행
+```bash
+cd ./backend
+uvicorn main:app --reload
+```

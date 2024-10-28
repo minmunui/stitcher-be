@@ -1,7 +1,7 @@
 import os
 
 SERVER_INFO = {}
-SERVER_INFO_FILE = "server_info.txt"
+SERVER_INFO_FILE = "./server_info.txt"
 DATA_DIR = "../datasets"
 
 def set_default_server_info():

@@ -13,7 +13,8 @@ DATA_STATUS = {
     "READY": 1,
     "ONPROGRESS": 2,
     "DONE": 3,
-    "ERROR": 4
+    "ERROR": 4,
+    "QUEUED": 5
 }
 
 ODM_STATUS = {
@@ -23,8 +24,6 @@ ODM_STATUS = {
     "COMPLETED": 40,
     "CANCELED": 50
 }
-
-
 
 """
     데이터의 상태를 확인하는 함수들을 정의합니다.
@@ -43,10 +42,7 @@ ODM_STATUS = {
 
 
 def get_time_from_timestamp(timestamp: int) -> str:
-    timestamp = timestamp
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-
-
 
 
 def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
@@ -55,7 +51,6 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
     :param dir_name:
     :return:
     """
-    datalist = os.listdir(DATA_PATH)
 
     # 업로드 중인 데이터
     if "uploading.txt" in os.listdir(os.path.join(DATA_PATH, dir_name)):
@@ -152,37 +147,68 @@ def get_data_status_step2(dir_name: str) -> dict:
     uploaded_time = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, dir_name)))
     uploaded_time = convert_time(uploaded_time)
     if uuid is None:
+        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init", )
+        uuid = response.json()["uuid"]
+
+        data_path = os.path.join(DATA_PATH, dir_name)
+
+        # data_path에 uuid_{uuid}.txt 파일 생성
+        with open(os.path.join(data_path, f"uuid_{uuid}.txt"), "w") as f:
+            f.write(f"Task is created in {datetime.now()}")
+
+    # step2_uploading이라는 파일이 존재하면, OnProgress
+    if "step2_uploading" in os.listdir(os.path.join(DATA_PATH, dir_name)):
+        started_at = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, dir_name, "step2_uploading")))
         return {
-            "status": DATA_STATUS["READY"],
-            "data": {"uploadedAt": uploaded_time}
+            "status": DATA_STATUS["UPLOADING"],
+            "data": {"startedAt": started_at, "uuid": uuid}
         }
-    result = requests.get(f"{SERVER_INFO["ODM_URL"]}/task/{uuid}/info")
-    print(f"{SERVER_INFO['ODM_URL']}/task/{uuid}/info")
-    print(result.json())
-    if result.status_code == 200:
+    response = requests.get(f"{SERVER_INFO["ODM_URL"]}/task/{uuid}/info")
+    if response.status_code != 200:
+        return {
+            "status": DATA_STATUS["ERROR"],
+            "data": {"errorLog": "Data not found", "uuid": uuid}
+        }
+
+    response_json = response.json()
+    if response.status_code == 200:
         # result에 error라는 key가 있을 경우, 준비중
-        if "error" in result.json():
+        if "error" in response.json():
             return {
-                "status": DATA_STATUS["ONPROGRESS"],
+                "status": DATA_STATUS["READY"],
                 "data": {"startedAt": "uploading", "uuid": uuid}
             }
-        if result["status"]["code"] == ODM_STATUS["QUEUED"] or result["status"]["code"] == ODM_STATUS["RUNNING"]:
+        if response_json["status"]["code"] == ODM_STATUS["QUEUED"]:
+            return {
+                "status": DATA_STATUS["QUEUED"],
+                "data": {"startedAt": get_time_from_timestamp(response_json["dateCreated"] // 1000),
+                         "uuid": uuid}
+            }
+
+        if response_json["status"]["code"] == ODM_STATUS["RUNNING"]:
             return {
                 "status": DATA_STATUS["ONPROGRESS"],
-                "data": {"startedAt": get_time_from_timestamp(result["status"]["dateCreated"]),
-                         "progress": result["progress"],
+                "data": {"startedAt": get_time_from_timestamp(response_json["dateCreated"] // 1000),
+                         "progress": response_json["progress"],
                          "uuid": uuid}
             }
-        if result["status"]["code"] == ODM_STATUS["FAILED"] or result["status"]["code"] == ODM_STATUS["CANCELED"]:
+        if response_json["status"]["code"] == ODM_STATUS["FAILED"] or response_json["status"]["code"] == ODM_STATUS[
+            "CANCELED"]:
             return {
                 "status": DATA_STATUS["ERROR"],
-                "data": {"errorLog": result["status"]["message"],
+                "data": {"errorLog": response_json["message"],
                          "uuid": uuid}
             }
-        if result["status"]["code"] == ODM_STATUS["COMPLETED"]:
+        if response_json["status"]["code"] == ODM_STATUS["COMPLETED"]:
             return {
                 "status": DATA_STATUS["DONE"],
-                "data": {"finishedAt": get_time_from_timestamp(result["status"]["dateFinished"]), "uuid": uuid}
+                "data": {"finishedAt": get_time_from_timestamp(
+                    response_json["dateCreated"] // 1000 + response_json["processingTime"] // 1000), "uuid": uuid}
+            }
+        if response_json["status"]["code"] == ODM_STATUS["UPLOADING"]:
+            return {
+                "status": DATA_STATUS["UPLOADING"],
+                "data": {"startedAt": uploaded_time, "uuid": uuid}
             }
 
     return {

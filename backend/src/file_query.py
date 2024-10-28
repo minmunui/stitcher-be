@@ -16,3 +16,11 @@ def get_uuid_by_name(dir_name: str) -> str or None:
             return file.split('_')[1].split('.')[0]
     return None
 
+def make_error_log(dir_name: str, error_message: str) -> None:
+    """
+    에러 로그를 생성합니다.
+    :param dir_name: 에러 로그를 생성할 폴더 이름
+    :param error_message: 에러 메시지
+    """
+    with open(os.path.join(DATA_PATH, dir_name, 'error_log.txt'), 'w') as f:
+        f.write(error_message)

@@ -1,7 +1,7 @@
-import asyncio
 import os
 import sys
-from contextlib import asynccontextmanager
+import threading
+from datetime import datetime
 from http.client import HTTPException
 from os import listdir
 from pathlib import Path
@@ -14,7 +14,7 @@ import subprocess
 import requests
 
 from src.file_query import get_uuid_by_name
-from src.process import worker, task_queue
+from src.process import run_coroutine_in_thread, request_odm_stitch
 from src.server_info import SERVER_INFO_FILE, SERVER_INFO, DATA_DIR
 from src.status import get_data_status_step1, get_data_status_step2
 
@@ -22,26 +22,21 @@ sys.path.append(str(Path(__file__).resolve().parents[1] / 'stitcher-step1'))
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'tiff'}
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    worker_task = asyncio.create_task(worker())
-    yield
-    worker_task.cancel()
-
 # 순차적 실행하기
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 origins = [
-    "http://localhost",
+    "http://localhost:5173",
     "http://localhost:8080",
     "http://localhost:59617",
     "http://127.0.0.1:59617",
+    "http://0.0.0.0",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # 허용할 Origin 목록
+    allow_origins=["*"],  # 허용할 Origin 목록
     allow_credentials=True,  # 쿠키 등 자격 증명 허용 여부
     allow_methods=["*"],  # 허용할 HTTP 메서드 목록
     allow_headers=["*"],  # 허용할 HTTP 헤더 목록
@@ -89,6 +84,7 @@ async def post_server_info(info: dict):
     if "ODM_URL" not in info.keys():
         info["ODM_URL"] = "http://localhost:5000"
     for key, value in info.items():
+        print(f"{key}!{value}")
         server_info.write(f"{key}!{value}\n")
     server_info.seek(server_info.tell() - 1)
     server_info.close()
@@ -102,18 +98,18 @@ async def stitch(option: dict):
     if step == 1:
         input_path = Path(DATA_DIR) / id / "images"
         print(f"input_path: {input_path}")
-        task_queue.put(input_path)
+        thread = threading.Thread(target=run_coroutine_in_thread, args=(request_odm_stitch, input_path, id))
         return JSONResponse(content={"message": f"Task {id} is added to queue"}, status_code=200)
     elif step == 2:
         print(f"stitch option : {option}")
+
         uuid = get_uuid_by_name(id)
         print(f"uuid: {uuid}")
-        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/commit/{uuid}", json={"options": option})
-        print(f"response: {response.json()}")
+        thread = threading.Thread(target=run_coroutine_in_thread, args=(request_odm_stitch, uuid, id))
+        thread.start()
         return JSONResponse(content={"message": "Task is created"}, status_code=200)
     else:
         return JSONResponse(content={"error": "Invalid step"}, status_code=400)
-
 
 @app.delete("/delete/{id}")
 async def delete_data(id: str):
@@ -128,6 +124,22 @@ async def delete_data(id: str):
             return JSONResponse(content={"error": "Data not found"}, status_code=404)
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/reset/{id}/{step}")
+async def reset_data(id: str, step: int):
+    if step == 1:
+        pass
+    if step == 2:
+        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
+        if response.status_code == 200:
+            uuid = response.json()["uuid"]
+            with open(Path(DATA_DIR) / id / f"uuid_{uuid}.txt", "w") as f:
+                f.write(f"Task is created in {datetime.now()}")
+            return JSONResponse(content={"message": "Task is reset"}, status_code=200)
+        else:
+            return JSONResponse(content={"error": "Cannot reset task"}, status_code=500)
+    else:
+        return JSONResponse(content={"error": "Invalid step"}, status_code=400)
 
 
 @app.get("/error/{id}/{step}")
@@ -149,9 +161,6 @@ async def get_data_list():
         results = []
         name = ""
         for folder_name in folder_names:
-            folder_name = folder_name.split(";")[0]
-            if len(folder_name.split(";")) > 1:
-                name = folder_name.split(";")[0]
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
             status_2 = get_data_status_step2(folder_name)
 
@@ -208,7 +217,7 @@ async def save_file(files, id, total):
         if response.status_code == 200:
             uuid = response.json()["uuid"]
             with open(Path(DATA_DIR) / id / f"uuid_{uuid}.txt", "w") as f:
-                f.write("Task is created")
+                f.write(f"Task is created in {datetime.now()}")
     for file in files:
         file_location = upload_path / file.filename
         with open(file_location, "wb") as f:
