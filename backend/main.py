@@ -1,31 +1,34 @@
+import io
 import os
-import sys
 import threading
+import zipfile
 from datetime import datetime
 from http.client import HTTPException
 from os import listdir
 from pathlib import Path
+from typing import List
 
 from fastapi import Form
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import subprocess
 import requests
 
+from src.stitcher_step1.main import OPENCV_DIR_NAME
 from src.file_query import get_uuid_by_name
 from src.process import run_coroutine_in_thread, request_odm_stitch
 from src.server_info import SERVER_INFO_FILE, SERVER_INFO, DATA_DIR
 from src.status import get_data_status_step1, get_data_status_step2
-
-sys.path.append(str(Path(__file__).resolve().parents[1] / 'stitcher-step1'))
+from src.stitcher_step1.main import stitch_run
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'tiff'}
 
 # 순차적 실행하기
 
 app = FastAPI()
-
+router = APIRouter()
 origins = [
     "http://localhost:5173",
     "http://localhost:8080",
@@ -43,15 +46,15 @@ app.add_middleware(
 )
 
 
-@app.get("/")
+@router.get("/")
 async def root():
     return {"message": "Hello World"}
 #
-# @app.on_event("startup")
+# @router.on_event("startup")
 # async def startup_event():
 #     await asyncio.create_task(task_worker())
 
-@app.get("/server_info")
+@router.get("/server_info")
 async def get_server_info():
     server_info = open(SERVER_INFO_FILE, "r")
     with server_info as f:
@@ -69,7 +72,7 @@ async def get_server_info():
     return JSONResponse(content=server_data, status_code=200)
 
 
-@app.post("/server_info")
+@router.post("/server_info")
 async def post_server_info(info: dict):
     for value in info.values():
         if len(value.split("!")) > 1:
@@ -91,14 +94,15 @@ async def post_server_info(info: dict):
     return JSONResponse(content={"message": "Server info is updated"}, status_code=200)
 
 
-@app.post("/stitch")
+@router.post("/stitch")
 async def stitch(option: dict):
     step = option["step"]
     id = option["id"]
     if step == 1:
-        input_path = Path(DATA_DIR) / id / "images"
+        input_path = Path(DATA_DIR) / id
         print(f"input_path: {input_path}")
-        thread = threading.Thread(target=run_coroutine_in_thread, args=(request_odm_stitch, input_path, id))
+        thread = threading.Thread(target=run_coroutine_in_thread, args=(stitch_run, input_path))
+        thread.start()
         return JSONResponse(content={"message": f"Task {id} is added to queue"}, status_code=200)
     elif step == 2:
         print(f"stitch option : {option}")
@@ -111,7 +115,7 @@ async def stitch(option: dict):
     else:
         return JSONResponse(content={"error": "Invalid step"}, status_code=400)
 
-@app.delete("/delete/{id}")
+@router.delete("/delete/{id}")
 async def delete_data(id: str):
     try:
         uuid = get_uuid_by_name(id)
@@ -125,7 +129,7 @@ async def delete_data(id: str):
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-@app.post("/reset/{id}/{step}")
+@router.post("/reset/{id}/{step}")
 async def reset_data(id: str, step: int):
     if step == 1:
         pass
@@ -141,12 +145,88 @@ async def reset_data(id: str, step: int):
     else:
         return JSONResponse(content={"error": "Invalid step"}, status_code=400)
 
+@router.get("/stitched_image/{id}/{step}")
+async def stitched_image(id: str, step: int):
+    if step == 1:
+        zip_buffer = io.BytesIO()
 
-@app.get("/error/{id}/{step}")
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            # 대상 디렉토리의 모든 파일을 순회
+            image_dir = Path(DATA_DIR) / id / "images"
+            if image_dir.is_dir():
+                for file_path in image_dir.glob('*'):  # 모든 파일 선택
+                    # 파일이 이미지인 경우에만 추가 (필요한 경우)
+                    if file_path.suffix.lower() in ['.jpg']:
+                        # ZIP 파일 내 경로와 파일 데이터 추가
+                        zip_file.write(
+                            file_path,
+                            arcname=file_path.name  # ZIP 내부에서의 파일명
+                        )
+
+        # ZIP 버퍼를 처음으로 되감기
+        zip_buffer.seek(0)
+
+        # 다운로드용 헤더 설정
+        headers = {
+            "Content-Disposition": f"attachment; filename={id}_images.zip"
+        }
+
+        # StreamingResponse로 ZIP 파일 반환
+        return StreamingResponse(
+            zip_buffer,
+            headers=headers,
+            media_type="application/zip"
+        )
+    elif step == 2:
+        download_path = SERVER_INFO["ODM_URL"] + "/task/" + get_uuid_by_name(id) + "/download/all.zip"
+        return JSONResponse(content={"url": download_path}, status_code=200)
+    else:
+        return JSONResponse(content={"stitchedImage": "Invalid step"}, status_code=400)
+
+
+@router.get("/stitched_image/download/{id}")
+async def download_stitched_image(id: str):
+    # 메모리에 ZIP 파일 생성
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # 대상 디렉토리의 모든 파일을 순회
+        image_dir = Path(DATA_DIR) / id / "images"
+        if image_dir.is_dir():
+            for file_path in image_dir.glob('*'):  # 모든 파일 선택
+                # 파일이 이미지인 경우에만 추가 (필요한 경우)
+                if file_path.suffix.lower() in ['.jpg']:
+                    # ZIP 파일 내 경로와 파일 데이터 추가
+                    zip_file.write(
+                        file_path,
+                        arcname=file_path.name  # ZIP 내부에서의 파일명
+                    )
+
+    # ZIP 버퍼를 처음으로 되감기
+    zip_buffer.seek(0)
+
+    # 다운로드용 헤더 설정
+    headers = {
+        "Content-Disposition": f"attachment; filename={id}_images.zip"
+    }
+
+    # StreamingResponse로 ZIP 파일 반환
+    return StreamingResponse(
+        zip_buffer,
+        headers=headers,
+        media_type="application/zip"
+    )
+
+@router.get("/error_log/{id}/{step}")
 async def get_status(id: str, step: int):
     if step == 1:
-        uploaded_time, n_images, status = get_data_status_step1(id)
-        return JSONResponse(content={"errorLog": status["data"]["errorLog"]}, status_code=200)
+        try:
+            with open(Path(DATA_DIR) / id / OPENCV_DIR_NAME / "error.txt", "r") as f:
+                error_log = f.read()
+        except FileNotFoundError:
+            error_log = "No error log"
+
+        return JSONResponse(content={"errorLog": error_log}, status_code=200)
     elif step == 2:
         status = get_data_status_step2(id)
         return JSONResponse(content={"errorLog": status["data"]["errorLog"]}, status_code=200)
@@ -154,7 +234,7 @@ async def get_status(id: str, step: int):
         return JSONResponse(content={"errorLog": "Invalid step"}, status_code=400)
 
 
-@app.get('/data')
+@router.get('/data')
 async def get_data_list():
     try:
         folder_names = [name for name in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, name))]
@@ -187,7 +267,7 @@ def allowed_file(filename: str) -> bool:
 
 
 
-@app.post("/single_upload/{id}")
+@router.post("/single_upload/{id}")
 async def upload_file(id: str, file: UploadFile = File(...), total: int = Form(...)):
     if not id:
         raise HTTPException(status_code=422, detail="ID parameter is required")
@@ -196,7 +276,7 @@ async def upload_file(id: str, file: UploadFile = File(...), total: int = Form(.
 
     return await save_file([file], id, total)
 
-@app.post("/multiple_upload/{id}")
+@router.post("/multiple_upload/{id}")
 async def upload_file(id: str, files: list[UploadFile] = File(...), total: int = Form(...)):
     if not id:
         raise HTTPException(status_code=422, detail="ID parameter is required")
@@ -232,7 +312,12 @@ async def save_file(files, id, total):
             uploading_file.unlink()
     return {"info": f"file is saved on {str(upload_path)}"}
 
-# @app.post("/upload/{id}")
+
+
+app.include_router(router, prefix="/api")
+
+
+# @router.post("/upload/{id}")
 # async def upload_file(id: str, file: UploadFile = File(...)):
 #     if not id:
 #         raise HTTPException(status_code=422, detail="ID parameter is required")

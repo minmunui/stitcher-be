@@ -71,13 +71,13 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
         }
 
     data_path = os.path.join(DATA_PATH, dir_name)
-    opencv_path = os.path.join(data_path, "opencv-output")
+    opencv_path = os.path.join(data_path, "opencv_output")
     image_path = os.path.join(data_path, "images")
     n_images = len(os.listdir(image_path))
     uploaded_time = os.path.getctime(data_path)
     uploaded_time = convert_time(datetime.fromtimestamp(uploaded_time))
     # 정합 전인 데이터
-    # data_path에 opencv-output이 존재하지 않으면 정합 전
+    # data_path에 opencv_output이라는 폴더가 존재하지 않으면 정합 전
     if not os.path.exists(opencv_path):
         return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["READY"],
@@ -85,10 +85,10 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
         }
 
     # 정합 에러 데이터
-    # data_path에 opencv-output이 존재하고, 그 폴더에 error.txt가 존재하면 정합 에러
-    if os.path.exists(os.path.join(data_path, "opencv-output", "error.txt")):
+    # data_path에 opencv_output이 존재하고, 그 폴더에 error.txt가 존재하면 정합 에러
+    if os.path.exists(os.path.join(data_path, "opencv_output", "error.txt")):
         # 에러 로그를 읽어서 반환
-        with open(os.path.join(data_path, "opencv-output", "error.txt"), "r") as f:
+        with open(os.path.join(data_path, "opencv_output", "error.txt"), "r") as f:
             error_log = f.read()
         return convert_time(uploaded_time), n_images, {
             "status": DATA_STATUS["ERROR"],
@@ -101,9 +101,9 @@ def get_data_status_step1(dir_name: str) -> tuple[str, int, dict]:
     current_cluster = 0
     uploaded_time = os.path.getctime(os.path.join(opencv_path))
     uploaded_time = convert_time(datetime.fromtimestamp(uploaded_time))
-    # data_path에 opencv-output이 존재하지만, opencv-output에 c로 시작하는 폴더가 존재하면 정합 중
+    # data_path에 opencv_output이 존재하지만, opencv_output에 c로 시작하는 폴더가 존재하면 정합 중
     for opencv_file in os.listdir(opencv_path):
-        if opencv_file.startswith("c"):
+        if opencv_file.startswith("c_"):
             n_cluster = int(opencv_file.split('_')[1].split('.')[0])
 
         if opencv_file.startswith("opencv_"):
