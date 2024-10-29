@@ -202,6 +202,8 @@ async def get_data_list():
         results = []
         name = ""
         for folder_name in folder_names:
+            if not os.listdir(os.path.join(DATA_DIR, folder_name)):
+                continue
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
             print(f"uploaded_time: {uploaded_time}, n_image: {n_image}, status_1: {status_1}")
 
