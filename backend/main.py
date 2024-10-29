@@ -258,6 +258,7 @@ async def get_data_list():
         for folder_name in folder_names:
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
             print(f"uploaded_time: {uploaded_time}, n_image: {n_image}, status_1: {status_1}")
+
             status_2 = get_data_status_step2(folder_name)
             print(f"status_2: {status_2}")
 

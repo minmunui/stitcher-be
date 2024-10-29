@@ -156,6 +156,15 @@ def get_data_status_step2(dir_name: str) -> dict:
         with open(os.path.join(data_path, f"uuid_{uuid}.txt"), "w") as f:
             f.write(f"Task is created in {datetime.now()}")
 
+    if "uploading.txt" in os.listdir(os.path.join(DATA_PATH, dir_name)):
+        uploaded_time = os.path.getctime(os.path.join(DATA_PATH, dir_name))
+        uploaded_time = datetime.fromtimestamp(uploaded_time)
+        n_image = len(os.listdir(os.path.join(DATA_PATH, dir_name, "images")))
+        return convert_time(uploaded_time), n_image, {
+            "status": DATA_STATUS["UPLOADING"],
+            "data": {"startedAt": convert_time(uploaded_time)}
+        }
+
     # step2_uploading이라는 파일이 존재하면, OnProgress
     if "step2_uploading" in os.listdir(os.path.join(DATA_PATH, dir_name)):
         started_at = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, dir_name, "step2_uploading")))
