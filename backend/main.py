@@ -248,11 +248,11 @@ async def get_status(id: str, step: int):
 @router.get('/data')
 async def get_data_list():
     try:
-        folder_names = [name for name in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, name))]
-        if not folder_names:
+        # DATA_DIR이 존재하지 않을 경우 생성
+        if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR, exist_ok=True)
-            return JSONResponse(content={"data": []}, status_code=200)
-        print(f"folder_names: {folder_names}")
+        folder_names = [name for name in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, name))]
+
         results = []
         name = ""
         for folder_name in folder_names:
