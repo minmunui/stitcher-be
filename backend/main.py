@@ -12,7 +12,7 @@ from fastapi import Form
 from fastapi import FastAPI, UploadFile, File, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
 import subprocess
 import requests
 
@@ -149,39 +149,15 @@ async def reset_data(id: str, step: int):
     else:
         return JSONResponse(content={"error": "Invalid step"}, status_code=400)
 
-
 @router.get("/stitched_image/{id}/{step}")
 async def stitched_image(id: str, step: int):
     if step == 1:
-        zip_buffer = io.BytesIO()
+        image_dir = Path(DATA_DIR) / id / OPENCV_DIR_NAME
+        if not image_dir.exists():
+            raise HTTPException(status_code=404, detail="Image directory not found")
+        image_files = [file.name for file in image_dir.iterdir() if file.is_file() and file.suffix.lower() in ['.jpg', '.jpeg', '.png']]
+        return JSONResponse(content={"url": image_files}, status_code=200)
 
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            # 대상 디렉토리의 모든 파일을 순회
-            image_dir = Path(DATA_DIR) / id / "images"
-            if image_dir.is_dir():
-                for file_path in image_dir.glob('*'):  # 모든 파일 선택
-                    # 파일이 이미지인 경우에만 추가 (필요한 경우)
-                    if file_path.suffix.lower() in ['.jpg']:
-                        # ZIP 파일 내 경로와 파일 데이터 추가
-                        zip_file.write(
-                            file_path,
-                            arcname=file_path.name  # ZIP 내부에서의 파일명
-                        )
-
-        # ZIP 버퍼를 처음으로 되감기
-        zip_buffer.seek(0)
-
-        # 다운로드용 헤더 설정
-        headers = {
-            "Content-Disposition": f"attachment; filename={id}_images.zip"
-        }
-
-        # StreamingResponse로 ZIP 파일 반환
-        return StreamingResponse(
-            zip_buffer,
-            headers=headers,
-            media_type="application/zip"
-        )
     elif step == 2:
         download_path = SERVER_INFO["ODM_URL"] + "/task/" + get_uuid_by_name(id) + "/download/all.zip"
         return JSONResponse(content={"url": download_path}, status_code=200)
@@ -189,41 +165,11 @@ async def stitched_image(id: str, step: int):
         return JSONResponse(content={"stitchedImage": "Invalid step"}, status_code=400)
 
 
-@router.get("/stitched_image/download/{file_name}/{step}")
-async def download_stitched_image(file_name: str, step: int):
+@router.get("/stitched_image/download/{data_name}/{file_name}")
+async def download_stitched_image(data_name:str, file_name: str):
+    print(f"path = {Path(DATA_DIR) / data_name / OPENCV_DIR_NAME / file_name}")
     try:
-        if step == 1:
-            # ZIP 파일을 메모리에 생성
-            zip_buffer = io.BytesIO()
-
-            # ZIP 파일 생성
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # 이미지가 있는 디렉토리 경로
-                image_dir = Path(DATA_DIR) / file_name / OPENCV_DIR_NAME
-
-                if not image_dir.exists():
-                    raise HTTPException(status_code=404, detail="Image directory not found")
-
-                # 디렉토리 내의 모든 이미지 파일을 ZIP에 추가
-                for file_path in image_dir.glob('*'):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.jpg', '.jpeg', '.png']:
-                        # ZIP 파일 내 경로와 파일 데이터 추가
-                        zip_file.write(
-                            file_path,
-                            arcname=file_path.name  # ZIP 내부의 파일명
-                        )
-
-            # ZIP 버퍼를 처음으로 되감기
-            zip_buffer.seek(0)
-
-            headers = {
-                "Content-Disposition": f"attachment; filename={file_name}_step{step}.zip"
-            }
-            return StreamingResponse(
-                zip_buffer,
-                headers=headers,
-                media_type="application/zip"
-            )
+        return FileResponse(Path(DATA_DIR) / data_name / OPENCV_DIR_NAME / file_name, filename=file_name, media_type="image/jpeg")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Image directory not found")
 
@@ -333,47 +279,23 @@ async def save_file(files, id, total):
 
 app.include_router(router, prefix="/api")
 
-# @router.post("/upload/{id}")
-# async def upload_file(id: str, file: UploadFile = File(...)):
-#     if not id:
-#         raise HTTPException(status_code=422, detail="ID parameter is required")
-#     if not file:
-#         raise HTTPException(status_code=422, detail="File is required")
-#     already_exist = False
-#     uploaded = False
-#     print(f"file_name: {file.filename}")
+# @app.get(
+#     "/image",
 #
-#     # 존재하는지 확인
-#     for file_name in listdir(DATA_DIR):
-#         if file_name.startswith(id):
-#             if len(file_name.split(";")) > 1:
-#                 already_exist = True
-#                 uploaded = True
-#                 id = file_name
-#             if file_name == id:
-#                 already_exist = True
-#                 break
+#     # Set what the media type will be in the autogenerated OpenAPI specification.
+#     # fastapi.tiangolo.com/advanced/additional-responses/#additional-media-types-for-the-main-response
+#     responses = {
+#         200: {
+#             "content": {"image/png": {}}
+#         }
+#     },
 #
-#     upload_path = Path(DATA_DIR) / id / "images"
-#     if not already_exist:
-#         upload_path.mkdir(parents=True, exist_ok=True)
-#
-#     file_location = upload_path / file.filename
-#
-#     # 파일 저장
-#     with open(file_location, "wb") as f:
-#         f.write(await file.read())
-#
-#     # 존재하지 않는다면, 새로운 uuid 생성하여 새로운 디렉토리 생성
-#     if not uploaded:
-#         response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
-#         print(f"response: {response.json()}")
-#
-#         if response.status_code == 200:
-#             uuid = response.json()["uuid"]
-#             id = id + ";" + uuid
-#             os.rename(upload_path, Path(DATA_DIR) / id / "images")
-#         else:
-#             return JSONResponse(content={"error": "Cannot create new task"}, status_code=500)
-#
-#     return {"info": f"file is saved on {str(file_location)}"}
+#     # Prevent FastAPI from adding "application/json" as an additional
+#     # response media type in the autogenerated OpenAPI specification.
+#     # https://github.com/tiangolo/fastapi/issues/3258
+#     response_class=Response
+# )
+# def get_image()
+#     image_bytes: bytes = generate_cat_picture()
+#     # media_type here sets the media type of the actual response sent to the client.
+#     return Response(content=image_bytes, media_type="image/png")
