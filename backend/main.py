@@ -249,11 +249,17 @@ async def get_status(id: str, step: int):
 async def get_data_list():
     try:
         folder_names = [name for name in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, name))]
+        if not folder_names:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            return JSONResponse(content={"data": []}, status_code=200)
+        print(f"folder_names: {folder_names}")
         results = []
         name = ""
         for folder_name in folder_names:
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
+            print(f"uploaded_time: {uploaded_time}, n_image: {n_image}, status_1: {status_1}")
             status_2 = get_data_status_step2(folder_name)
+            print(f"status_2: {status_2}")
 
             if name != "":
                 folder_name = name
