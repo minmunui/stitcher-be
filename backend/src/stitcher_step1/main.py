@@ -21,7 +21,7 @@ async def stitch_run(input_path: str, pano_conf: float = 1.0, scans: int = 1):
     # output_path가 존재하는지 출력 true or false
     os.makedirs(output_path, exist_ok=True)
     image_path = os.path.join(input_path, "images")
-    n_cluster = len(os.listdir(image_path)) // 70 + 1
+    n_cluster = len(os.listdir(image_path)) // 80 + 1
     flag_path = os.path.join(output_path, f"c_{n_cluster}.txt")
     with open(flag_path, "w") as f:
         f.write("")
