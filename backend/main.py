@@ -22,7 +22,7 @@ from src.stitcher_step1.main import stitch_run
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'tiff'}
 
-# 순차적 실행하기
+DIVIDE_THRESHOLD = 80
 
 app = FastAPI()
 router = APIRouter()
@@ -95,7 +95,7 @@ async def stitch(option: dict):
     if step == 1:
         input_path = Path(DATA_DIR) / id
         print(f"input_path: {input_path}")
-        thread = threading.Thread(target=run_coroutine_in_thread, args=(stitch_run, input_path))
+        thread = threading.Thread(target=run_coroutine_in_thread, args=(stitch_run, input_path, DIVIDE_THRESHOLD))
         thread.start()
         return JSONResponse(content={"message": f"Task {id} is added to queue"}, status_code=200)
     elif step == 2:
@@ -129,9 +129,8 @@ async def reset_data(id: str):
     data_path = Path(DATA_DIR) / id
     if data_path.exists():
         for file in listdir(data_path):
-            if file.startswith("uuid_") or file == "images":
+            if file.startswith("uuid_") or os.path.isdir(data_path / file):
                 continue
-
             (data_path / file).unlink()
 
     opencv_dir = Path(DATA_DIR) / id / OPENCV_DIR_NAME
