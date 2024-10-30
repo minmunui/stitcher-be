@@ -1,12 +1,9 @@
-import io
 import os
 import threading
-import zipfile
 from datetime import datetime
 from http.client import HTTPException
 from os import listdir
 from pathlib import Path
-from typing import List
 
 from fastapi import Form
 from fastapi import FastAPI, UploadFile, File, APIRouter
@@ -50,11 +47,6 @@ app.add_middleware(
 async def root():
     return {"message": "Hello World"}
 
-
-#
-# @router.on_event("startup")
-# async def startup_event():
-#     await asyncio.create_task(task_worker())
 
 @router.get("/server_info")
 async def get_server_info():
@@ -107,8 +99,6 @@ async def stitch(option: dict):
         thread.start()
         return JSONResponse(content={"message": f"Task {id} is added to queue"}, status_code=200)
     elif step == 2:
-        print(f"stitch option : {option}")
-
         uuid = get_uuid_by_name(id)
         print(f"uuid: {uuid}")
         thread = threading.Thread(target=run_coroutine_in_thread, args=(request_odm_stitch, uuid, id))
@@ -133,21 +123,36 @@ async def delete_data(id: str):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
-@router.post("/reset/{id}/{step}")
-async def reset_data(id: str, step: int):
-    if step == 1:
-        pass
-    if step == 2:
-        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
-        if response.status_code == 200:
-            uuid = response.json()["uuid"]
-            with open(Path(DATA_DIR) / id / f"uuid_{uuid}.txt", "w") as f:
-                f.write(f"Task is created in {datetime.now()}")
-            return JSONResponse(content={"message": "Task is reset"}, status_code=200)
-        else:
-            return JSONResponse(content={"error": "Cannot reset task"}, status_code=500)
+@router.post("/reset/{id}")
+async def reset_data(id: str):
+    # 해당 폴더의 images와 uuid_로 시작하지 않는 파일 삭제
+    data_path = Path(DATA_DIR) / id
+    if data_path.exists():
+        for file in listdir(data_path):
+            if file.startswith("uuid_") or file == "images":
+                continue
+
+            (data_path / file).unlink()
+
+    opencv_dir = Path(DATA_DIR) / id / OPENCV_DIR_NAME
+    if opencv_dir.exists():
+        subprocess.run(['rm', '-rf', str(opencv_dir)])
+
+    response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
+    if response.status_code == 200:
+        uuid = response.json()["uuid"]
+        # 기존에 생성된 uuid 파일이 있다면 uuid를 얻음
+        old_uuid = get_uuid_by_name(id)
+        if old_uuid:
+            requests.post(f"{SERVER_INFO['ODM_URL']}/task/remove", json={"uuid": old_uuid})
+        uuid_files = [file for file in listdir(Path(DATA_DIR) / id) if file.startswith("uuid_")]
+        for file in uuid_files:
+            (Path(DATA_DIR) / id / file).unlink()
+        with open(Path(DATA_DIR) / id / f"uuid_{uuid}.txt", "w") as f:
+            f.write(f"Task is created in {datetime.now()}")
+        return JSONResponse(content={"message": "Task is reset"}, status_code=200)
     else:
-        return JSONResponse(content={"error": "Invalid step"}, status_code=400)
+        return JSONResponse(content={"error": "Cannot reset task"}, status_code=500)
 
 @router.get("/stitched_image/{id}/{step}")
 async def stitched_image(id: str, step: int):
@@ -197,19 +202,19 @@ async def get_data_list():
         # DATA_DIR이 존재하지 않을 경우 생성
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR, exist_ok=True)
+        # DATA_DIR 내의 폴더 목록을 가져옴
         folder_names = [name for name in os.listdir(DATA_DIR) if os.path.isdir(os.path.join(DATA_DIR, name))]
 
         results = []
         name = ""
         for folder_name in folder_names:
+            # print(folder_name)
             if not os.listdir(os.path.join(DATA_DIR, folder_name)):
                 continue
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
-            print(f"uploaded_time: {uploaded_time}, n_image: {n_image}, status_1: {status_1}")
-
+            # print(f"status_1: {status_1}")
             status_2 = get_data_status_step2(folder_name)
-            print(f"status_2: {status_2}")
-
+            # print(f"status_2: {status_2}")
             if name != "":
                 folder_name = name
             results.append({
@@ -253,13 +258,15 @@ async def upload_file(id: str, files: list[UploadFile] = File(...), total: int =
 
 
 async def save_file(files, id, total):
+    # id가 -과 _외의 특수문자와 공백을 포함하고 있을 경우, 422 에러 반환
+    if not all([c.isalnum() or c in ['-', '_'] for c in id]):
+        raise HTTPException(status_code=422, detail="ID should contain only alphabets, numbers, - and _")
+
     upload_path = Path(DATA_DIR) / id / "images"
-    print(f"upload_path: {upload_path}")
     upload_path.mkdir(parents=True, exist_ok=True)
     # 만약 os.path.join(DATA_DIR, id)에 uuid_로 시작하는 파일이 없다면, 새로운 task 생성
     if not any([file_name.startswith("uuid_") for file_name in listdir(Path(DATA_DIR) / id)]):
         response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
-        print(f"response: {response.json()}")
         if response.status_code == 200:
             uuid = response.json()["uuid"]
             with open(Path(DATA_DIR) / id / f"uuid_{uuid}.txt", "w") as f:
@@ -280,24 +287,3 @@ async def save_file(files, id, total):
 
 
 app.include_router(router, prefix="/api")
-
-# @app.get(
-#     "/image",
-#
-#     # Set what the media type will be in the autogenerated OpenAPI specification.
-#     # fastapi.tiangolo.com/advanced/additional-responses/#additional-media-types-for-the-main-response
-#     responses = {
-#         200: {
-#             "content": {"image/png": {}}
-#         }
-#     },
-#
-#     # Prevent FastAPI from adding "application/json" as an additional
-#     # response media type in the autogenerated OpenAPI specification.
-#     # https://github.com/tiangolo/fastapi/issues/3258
-#     response_class=Response
-# )
-# def get_image()
-#     image_bytes: bytes = generate_cat_picture()
-#     # media_type here sets the media type of the actual response sent to the client.
-#     return Response(content=image_bytes, media_type="image/png")

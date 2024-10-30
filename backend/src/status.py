@@ -142,7 +142,6 @@ def get_data_status_step2(dir_name: str) -> dict:
     :param dir_name:
     :return:
     """
-    # localhost:3000/task/{dir_name}/info 로 요청 보내기
     uuid = get_uuid_by_name(dir_name)
     uploaded_time = get_time_from_timestamp(os.path.getctime(os.path.join(DATA_PATH, dir_name)))
     uploaded_time = convert_time(uploaded_time)
@@ -159,7 +158,6 @@ def get_data_status_step2(dir_name: str) -> dict:
     if "uploading.txt" in os.listdir(os.path.join(DATA_PATH, dir_name)):
         uploaded_time = os.path.getctime(os.path.join(DATA_PATH, dir_name))
         uploaded_time = datetime.fromtimestamp(uploaded_time)
-        n_image = len(os.listdir(os.path.join(DATA_PATH, dir_name, "images")))
         return {
             "status": DATA_STATUS["UPLOADING"],
             "data": {"startedAt": convert_time(uploaded_time)}
@@ -173,6 +171,7 @@ def get_data_status_step2(dir_name: str) -> dict:
             "data": {"startedAt": started_at, "uuid": uuid}
         }
     response = requests.get(f"{SERVER_INFO["ODM_URL"]}/task/{uuid}/info")
+    # print(f"{SERVER_INFO['ODM_URL']}/task/{uuid}/info")
     if response.status_code != 200:
         return {
             "status": DATA_STATUS["ERROR"],
@@ -180,6 +179,7 @@ def get_data_status_step2(dir_name: str) -> dict:
         }
 
     response_json = response.json()
+    # print(response_json)
     if response.status_code == 200:
         # result에 error라는 key가 있을 경우, 준비중
         if "error" in response.json():
@@ -201,11 +201,12 @@ def get_data_status_step2(dir_name: str) -> dict:
                          "progress": response_json["progress"],
                          "uuid": uuid}
             }
+
         if response_json["status"]["code"] == ODM_STATUS["FAILED"] or response_json["status"]["code"] == ODM_STATUS[
             "CANCELED"]:
             return {
                 "status": DATA_STATUS["ERROR"],
-                "data": {"errorLog": response_json["message"],
+                "data": {"errorLog": response_json["status"]["errorMessage"],
                          "uuid": uuid}
             }
         if response_json["status"]["code"] == ODM_STATUS["COMPLETED"]:
