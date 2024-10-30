@@ -1,5 +1,4 @@
-### 서버 실행
 ```bash
-cd ./backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+docker run -p 3000:3000 -v $(pwd)/odm_data:/var/www/data opendronemap/nodeodm "cp -r /temp_data/* /var/www/data && exec /usr/bin/node /var/www/index.js"
 ```
