@@ -1,4 +1,4 @@
-import json
+
 import os
 import threading
 from datetime import datetime
@@ -14,7 +14,6 @@ from fastapi.responses import FileResponse
 
 import subprocess
 import requests
-from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from src.stitcher_step1.main import OPENCV_DIR_NAME
 from src.file_query import get_uuid_by_name
@@ -277,6 +276,7 @@ async def upload_file(id: str, files: list[UploadFile] = File(...), total: int =
 
 
 async def save_file(files, id, total):
+    print(f"files: {files}, id: {id}, total: {total}")
     # id가 -과 _외의 특수문자와 공백을 포함하고 있을 경우, 422 에러 반환
     if not all([c.isalnum() or c in ['-', '_'] for c in id]):
         raise HTTPException(status_code=422, detail="ID should contain only alphabets, numbers, - and _")
