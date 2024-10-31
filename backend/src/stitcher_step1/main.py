@@ -15,7 +15,8 @@ ROT = {
 OPENCV_DIR_NAME = "opencv_output"
 
 
-async def stitch_run(input_path: str,divide_threshold: int = 80, pano_conf: float = 1.0, scans: int = 1):
+async def stitch_run(input_path: str, divide_threshold: int = 80, scans: int = 1, pano_conf: float = 1.0):
+    print(f"Stitching {input_path} with pano_conf={pano_conf}, scans={scans}")
     output_path = os.path.join(input_path, OPENCV_DIR_NAME)
     shutil.rmtree(output_path, ignore_errors=True)
     # output_path가 존재하는지 출력 true or false
@@ -73,6 +74,7 @@ def stitch(input_path: str, pano_conf: float = 1.0, scans: int = 1, n_cluster: i
     file = open(os.path.join(output_base, "flag.txt"), "w")
     file.write("1")
     file.close()
+
 
 def main():
     parser = argparse.ArgumentParser()

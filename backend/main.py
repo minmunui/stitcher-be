@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 from datetime import datetime
@@ -10,8 +11,10 @@ from fastapi import FastAPI, UploadFile, File, APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
 import subprocess
 import requests
+from requests_toolbelt.multipart.encoder import MultipartEncoder
 
 from src.stitcher_step1.main import OPENCV_DIR_NAME
 from src.file_query import get_uuid_by_name
@@ -20,9 +23,16 @@ from src.server_info import SERVER_INFO_FILE, SERVER_INFO, DATA_DIR
 from src.status import get_data_status_step1, get_data_status_step2
 from src.stitcher_step1.main import stitch_run
 
+import time
+
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'tiff'}
 
 DIVIDE_THRESHOLD = 80
+
+INIT_OPTIONS = {
+    'name': (None, time.strftime("%Y%m%d-%H%M%S")),
+    'options': (None, '[{"name":"fast-orthophoto","value":true}]'),
+}
 
 app = FastAPI()
 router = APIRouter()
@@ -92,10 +102,15 @@ async def post_server_info(info: dict):
 async def stitch(option: dict):
     step = option["step"]
     id = option["id"]
+    size = DIVIDE_THRESHOLD
+    if step == 1:
+        size = option["size"]
+        scan = option["scan"]
+    print(f"step: {step}, id: {id}, size: {size}")
     if step == 1:
         input_path = Path(DATA_DIR) / id
         print(f"input_path: {input_path}")
-        thread = threading.Thread(target=run_coroutine_in_thread, args=(stitch_run, input_path, DIVIDE_THRESHOLD))
+        thread = threading.Thread(target=run_coroutine_in_thread, args=(stitch_run, input_path, size, scan))
         thread.start()
         return JSONResponse(content={"message": f"Task {id} is added to queue"}, status_code=200)
     elif step == 2:
@@ -137,7 +152,8 @@ async def reset_data(id: str):
     if opencv_dir.exists():
         subprocess.run(['rm', '-rf', str(opencv_dir)])
 
-    response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
+    response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init", files=INIT_OPTIONS)
+    print(f"response: {response.json()}")
     if response.status_code == 200:
         uuid = response.json()["uuid"]
         # 기존에 생성된 uuid 파일이 있다면 uuid를 얻음
@@ -153,13 +169,15 @@ async def reset_data(id: str):
     else:
         return JSONResponse(content={"error": "Cannot reset task"}, status_code=500)
 
+
 @router.get("/stitched_image/{id}/{step}")
 async def stitched_image(id: str, step: int):
     if step == 1:
         image_dir = Path(DATA_DIR) / id / OPENCV_DIR_NAME
         if not image_dir.exists():
             raise HTTPException(status_code=404, detail="Image directory not found")
-        image_files = [file.name for file in image_dir.iterdir() if file.is_file() and file.suffix.lower() in ['.jpg', '.jpeg', '.png']]
+        image_files = [file.name for file in image_dir.iterdir() if
+                       file.is_file() and file.suffix.lower() in ['.jpg', '.jpeg', '.png']]
         return JSONResponse(content={"url": image_files}, status_code=200)
 
     elif step == 2:
@@ -170,10 +188,11 @@ async def stitched_image(id: str, step: int):
 
 
 @router.get("/stitched_image/download/{data_name}/{file_name}")
-async def download_stitched_image(data_name:str, file_name: str):
+async def download_stitched_image(data_name: str, file_name: str):
     print(f"path = {Path(DATA_DIR) / data_name / OPENCV_DIR_NAME / file_name}")
     try:
-        return FileResponse(Path(DATA_DIR) / data_name / OPENCV_DIR_NAME / file_name, filename=file_name, media_type="image/jpeg")
+        return FileResponse(Path(DATA_DIR) / data_name / OPENCV_DIR_NAME / file_name, filename=file_name,
+                            media_type="image/jpeg")
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Image directory not found")
 
@@ -197,6 +216,7 @@ async def get_status(id: str, step: int):
 
 @router.get('/data')
 async def get_data_list():
+    print(f"INIT_OPTIONS : {INIT_OPTIONS}")
     try:
         # DATA_DIR이 존재하지 않을 경우 생성
         if not os.path.exists(DATA_DIR):
@@ -211,9 +231,9 @@ async def get_data_list():
             if not os.listdir(os.path.join(DATA_DIR, folder_name)):
                 continue
             uploaded_time, n_image, status_1 = get_data_status_step1(folder_name)
-            # print(f"status_1: {status_1}")
+            print(f"status_1: {status_1}")
             status_2 = get_data_status_step2(folder_name)
-            # print(f"status_2: {status_2}")
+            print(f"status_2: {status_2}")
             if name != "":
                 folder_name = name
             results.append({
@@ -265,7 +285,8 @@ async def save_file(files, id, total):
     upload_path.mkdir(parents=True, exist_ok=True)
     # 만약 os.path.join(DATA_DIR, id)에 uuid_로 시작하는 파일이 없다면, 새로운 task 생성
     if not any([file_name.startswith("uuid_") for file_name in listdir(Path(DATA_DIR) / id)]):
-        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init")
+
+        response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/init", files=INIT_OPTIONS)
         if response.status_code == 200:
             uuid = response.json()["uuid"]
             with open(Path(DATA_DIR) / id / f"uuid_{uuid}.txt", "w") as f:

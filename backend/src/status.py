@@ -171,7 +171,7 @@ def get_data_status_step2(dir_name: str) -> dict:
             "data": {"startedAt": started_at, "uuid": uuid}
         }
     response = requests.get(f"{SERVER_INFO["ODM_URL"]}/task/{uuid}/info")
-    # print(f"{SERVER_INFO['ODM_URL']}/task/{uuid}/info")
+    print(f"{SERVER_INFO['ODM_URL']}/task/{uuid}/info")
     if response.status_code != 200:
         return {
             "status": DATA_STATUS["ERROR"],
@@ -179,7 +179,7 @@ def get_data_status_step2(dir_name: str) -> dict:
         }
 
     response_json = response.json()
-    # print(response_json)
+    print(response_json)
     if response.status_code == 200:
         # result에 error라는 key가 있을 경우, 준비중
         if "error" in response.json():
@@ -202,12 +202,17 @@ def get_data_status_step2(dir_name: str) -> dict:
                          "uuid": uuid}
             }
 
-        if response_json["status"]["code"] == ODM_STATUS["FAILED"] or response_json["status"]["code"] == ODM_STATUS[
-            "CANCELED"]:
+        if response_json["status"]["code"] == ODM_STATUS["FAILED"]:
             return {
                 "status": DATA_STATUS["ERROR"],
                 "data": {"errorLog": response_json["status"]["errorMessage"],
                          "uuid": uuid}
+            }
+
+        if response_json["status"]["code"] == ODM_STATUS["CANCELED"]:
+            return {
+                "status": DATA_STATUS["ERROR"],
+                "data": {"errorLog": "Task is canceled", "uuid": uuid}
             }
         if response_json["status"]["code"] == ODM_STATUS["COMPLETED"]:
             return {

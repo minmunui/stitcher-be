@@ -7,16 +7,8 @@ import requests
 
 RESTART_OPTIONS = [
     {
-        "name": "pc-ept",
-        "value": False
-    },
-    {
-        "name": "cog",
-        "value": False
-    },
-    {
-        "name": "gltf",
-        "value": False
+        "skipPostProcessing": "true",
+        "options": [{"name": "fast-orthophoto", "value": "true"}]
     }
 ]
 
@@ -41,21 +33,26 @@ async def request_odm_stitch(uuid, id):
         print(f"upload_response: {response.json()}")
         if 'error' in response.json() and response.json()['error'].startswith("Invalid uuid"):
             response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/restart", json={"uuid": uuid, "options": RESTART_OPTIONS})
-            if uploading_file.exists():
-                uploading_file.unlink()
+            await delete_flag(uploading_file)
             return response.json()
         if response.status_code != 200:
             print(f"upload failed: {file_path}")
-            if uploading_file.exists():
-                uploading_file.unlink()
+            await delete_flag(uploading_file)
             return
     # Path(DATA_DIR) / id / 에 flag삭제
-    uploading_file = Path(DATA_DIR) / id / "step2_uploading"
-    if uploading_file.exists():
-        uploading_file.unlink()
-    print(f"{SERVER_INFO['ODM_URL']}/task/new/commit/{uuid}")
+    await delete_flag(uploading_file)
+    # print(f"{SERVER_INFO['ODM_URL']}/task/new/commit/{uuid}")
+    # form data로 post 요청
+
+
     response = requests.post(f"{SERVER_INFO['ODM_URL']}/task/new/commit/{uuid}")
-    print(f"commit_response: {response}")
+
+    # print(f"commit_response: {response}")
     print(f"{response.json()}")
 
     return response.json()
+
+
+async def delete_flag(uploading_file):
+    if uploading_file.exists():
+        uploading_file.unlink()
