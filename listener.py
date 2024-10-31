@@ -92,7 +92,7 @@ def receive_file(client_socket, base_dir="datasets"):
         return False
 
 
-def start_server(host='0.0.0.0', port=9999, base_dir='received_files'):
+def start_server(host='0.0.0.0', port=9999, base_dir='datasets'):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((host, port))
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='TCP File Receiver Server')
     parser.add_argument('--port', type=int, default=9999, help='Port to listen on')
     parser.add_argument('--host', type=str, default='0.0.0.0', help='Host to bind to')
-    parser.add_argument('--dir', type=str, default='received_files', help='Base directory to save files')
+    parser.add_argument('--dir', type=str, default='datasets', help='Base directory to save files')
 
     args = parser.parse_args()
 
